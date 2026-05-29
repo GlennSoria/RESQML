@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
 # SQLAlchemy for PostgreSQL (Render) integration
-from sqlalchemy import create_engine, Table, Column, Integer, String, Float, JSON, DateTime, Boolean, MetaData
+from sqlalchemy import create_engine, Table, Column, Integer, String, Float, JSON, DateTime, Boolean, MetaData, select, insert
 from sqlalchemy.orm import sessionmaker
 
 # Database setup – Render provides DATABASE_URL; fallback to SQLite for local dev
@@ -30,6 +30,15 @@ else:
     engine = create_engine("sqlite:///ml.db", echo=False, future=True)
 
 metadata = MetaData()
+
+# --- Users table for basic authentication ---
+users_table = Table(
+    "users",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("username", String, unique=True, nullable=False),
+    Column("password", String, nullable=False),  # In a real app, store a hashed password
+)
 
 detections_table = Table(
     "detections",
@@ -48,6 +57,17 @@ detections_table = Table(
 )
 
 metadata.create_all(engine)
+
+# Ensure default users exist
+with engine.begin() as conn:
+    # Insert admin user if not present
+    admin_exists = conn.execute(select(users_table.c.id).where(users_table.c.username == "admin")).first()
+    if not admin_exists:
+        conn.execute(insert(users_table).values(username="admin", password="admin123"))
+    # Insert bfp user if not present
+    bfp_exists = conn.execute(select(users_table.c.id).where(users_table.c.username == "bfp")).first()
+    if not bfp_exists:
+        conn.execute(insert(users_table).values(username="bfp", password="bfp123"))
 SessionLocal = sessionmaker(bind=engine)
 
 # Load YOLOv8 model
