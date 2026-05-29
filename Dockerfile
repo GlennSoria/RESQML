@@ -26,4 +26,4 @@ EXPOSE 8000
 
 # ---- Run the FastAPI app via Gunicorn ------------------------------------
 # Gunicorn is already in requirements.txt
-CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT}"]
+CMD ["sh", "-c", "gunicorn main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:${PORT} --timeout 120"]
