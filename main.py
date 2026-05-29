@@ -18,6 +18,38 @@ from urllib.parse import urlparse, urlunparse
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 
+# SQLAlchemy for PostgreSQL (Render) integration
+from sqlalchemy import create_engine, Table, Column, Integer, String, Float, JSON, DateTime, Boolean, MetaData
+from sqlalchemy.orm import sessionmaker
+
+# Database setup – Render provides DATABASE_URL; fallback to SQLite for local dev
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL:
+    engine = create_engine(DATABASE_URL, echo=False, future=True)
+else:
+    engine = create_engine("sqlite:///ml.db", echo=False, future=True)
+
+metadata = MetaData()
+
+detections_table = Table(
+    "detections",
+    metadata,
+    Column("id", Integer, primary_key=True),
+    Column("timestamp", DateTime, default=datetime.utcnow),
+    Column("source_type", String),
+    Column("source", String),
+    Column("fire_detected", Boolean),
+    Column("highest_confidence", Float),
+    Column("detection_count", Integer),
+    Column("detections", JSON),
+    Column("threshold", Float),
+    Column("image_width", Integer),
+    Column("image_height", Integer),
+)
+
+metadata.create_all(engine)
+SessionLocal = sessionmaker(bind=engine)
+
 # Load YOLOv8 model
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "best.pt")
 model = None
@@ -149,6 +181,28 @@ def run_detection(image):
         "timestamp": datetime.now().isoformat()
     }
 
+def store_detection(result: dict, source_type: str, source: str):
+    """Persist detection result to the PostgreSQL/SQLite DB."""
+    db = SessionLocal()
+    try:
+        db.execute(
+            detections_table.insert().values(
+                timestamp=datetime.utcnow(),
+                source_type=source_type,
+                source=source,
+                fire_detected=result["fire_detected"],
+                highest_confidence=result["highest_confidence"],
+                detection_count=result["detection_count"],
+                detections=result["detections"],
+                threshold=result["threshold"],
+                image_width=result["image_size"]["width"],
+                image_height=result["image_size"]["height"],
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
 @app.post("/detect/base64")
 def detect_fire_base64(data: dict):
     """
@@ -181,7 +235,9 @@ def detect_fire_base64(data: dict):
     if image is None:
         raise HTTPException(status_code=400, detail="Invalid image format")
 
-    return run_detection(image)
+    result = run_detection(image)
+    store_detection(result, "base64", image_data)
+    return result
 
 @app.post("/detect/url")
 def detect_fire_url(data: dict):
